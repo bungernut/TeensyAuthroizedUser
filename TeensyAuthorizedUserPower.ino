@@ -1,44 +1,72 @@
 /*
 Platform: teensy 4.1 w/ ethernet; keypad; TFT-screen
+Teensy has 4kb of EEPROM
 Code plan:
-1) Store user codes in EEPROM (addresses 1-50) - codes are 4 numbers?
-2) Store logs in EEPROM (addresses 100+) - do we want timestamp? hours since 1970? NTP? (TODO)
+1) Store 20 user codes and names in EEPROM: codes are 4 numbers, names up to 10 char
+2) Maybe Store last 10 logs in EEPROM w/ timestamp? as chars, so 10char+YYMMDDHHMM  = 20char, so start at 1000?
 Teensy EEPROM docs: https://www.pjrc.com/teensy/td_libs_EEPROM.html
 
 
-When program loads, read codes from EEPROM and store into MODBUS-registers (0-99)
-Update codes by writing to register new user code
+When program loads, read codes from EEPROM and store into array
+Update codes via web interface?
 Modbus-register 0 - 1 writes codes to EEPROM, after write resets to 0
 Modbus resister 50+ - some kind of log that can be pulled by client2database app? Do we want to clear it or round-robbin? (TODO)
 */
 #include <Wire.h>
 #include <SPI.h>
-#include <NativeEthernet.h>
-#include <NativeEthernetUdp.h>
+//#include <NativeEthernet.h>
+// #include <NativeEthernetUdp.h>
+#include <QNEthernet.h>
+using namespace qindesign::network;
+#include <EasyWebServer.h>
 #include <NTPClient.h>
 #include <EEPROM.h>
-#include <ArduinoRS485.h> // ArduinoModbus depends on the ArduinoRS485 library
-#include <ArduinoModbus.h>
 #include <Keypad.h>
 
 // From NativeEthernet UDPNTP Example
 byte mac[] = {
   0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
 };
-EthernetUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000); // NTP server, GMT offset (seconds), update interval (milliseconds)
-
-// Modbus 
-EthernetServer ethServer(502);
-EthernetClient client;
-ModbusTCPServer modbusTCPServer;
-const double updateModbusMillis = 200;
-double lastModbusMillis=0;
+//qindesign::network::EthernetUDP ntpUDP;
+//NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000); // NTP server, GMT offset (seconds), update interval (milliseconds)
 
 // EEPROM Variables
 uint8_t highByte = 0x12; // Example high byte
 uint8_t lowByte = 0x34;  // Example low byte
 uint16_t combinedValue;
+char charlog[20];
+
+char c;
+EthernetServer server(80);
+
+void handleRoot(EasyWebServer &w) {
+  w.client.println(F("<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>"));
+  //w.client.println(F("<link rel=\"icon\" href=\"data:,\">"));
+  w.client.println(F("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center; font-size: 20px}</style></head>"));
+  //w.client.println(F(".button { background-color: #4CAF50; border: none; color: white; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-size: 20px; margin: 2px; cursor: pointer;}"));
+  w.client.println(F("<body><h1>PM727 Log</h1>"));
+  w.client.println(F("<p>"));
+  for (int i=0; i<10; i++) {
+    for (int j=0; j<20; j++){
+      c = EEPROM.read(1000 + i*20 + j);
+      w.client.print(c);
+    }
+    w.client.println(F("<br>"));
+  }
+  w.client.println(F("</p>"));
+  w.client.println(F("</body></html>"));
+  //server.send(200, "text/html", html);
+}
+
+void rootPage(EasyWebServer &w){
+  w.client.println(F("<!DOCTYPE HTML>"));
+  w.client.println(F("<html><head><title>EasyWebServer</title></head><body>"));
+  w.client.println(F("<p>Welcome to my little web server.</p>"));
+  w.client.println(F("<p><a href='/analog'>Click here to see the analog sensors</a></p>"));
+  w.client.println(F("<p><a href='/digital'>Click here to see the digital sensors</a></p>"));
+  w.client.println(F("</body></html>"));
+}
+
 
 // Keypad setup
 const byte ROWS = 4;
@@ -57,6 +85,20 @@ Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 // Code globals
 const String CORRECT_PASSWORD = "1234#"; // Example password ending with #
 String enteredPassword = "";
+
+
+bool checkPassword(int code) {
+  for (int i=0; i<50;i++) {
+    highByte = EEPROM.read(i*2);
+    lowByte  = EEPROM.read(i*2+1);
+    combinedValue = ((uint16_t)highByte << 8) | lowByte;
+    if (code == combinedValue && code != 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 
 
 void setup()
@@ -80,46 +122,56 @@ void setup()
   }
   Serial.print("Arduino IP address: ");
   Serial.println(Ethernet.localIP());
-  ntpUDP.begin(8888);
+  //ntpUDP.begin(8888);
 
+  Serial.print("NTP...");
   // NTP *********************
-  timeClient.begin();
-  timeClient.update();
+  //timeClient.begin();
+  //timeClient.update();
+  Serial.println(" done");
 
   // EEPROM
   Serial.println("Save1x EEPROM code...");
-  EEPROM.write(0, 4);
-  EEPROM.write(1, 210);
+  String exampleLog = "bmong    2509060606";
+  exampleLog.toCharArray(charlog,20);
+  EEPROM.put(1000, charlog);
+  exampleLog = "sluitz   2509060606";
+  exampleLog.toCharArray(charlog,20);
+  EEPROM.put(1020, charlog);
   Serial.println("DONE writing EEPROM");
 
-  // Setup Modbus 
-  modbusTCPServer.begin();
-  modbusTCPServer.configureHoldingRegisters(0, 50);
-  modbusTCPServer.holdingRegisterWrite(0, 0);
-  for (int i=0; i<50;i++) {
-    Serial.print(i);
-    highByte = EEPROM.read(i*2);
-    lowByte  = EEPROM.read(i*2+1);
-    combinedValue = ((uint16_t)highByte << 8) | lowByte;
-    modbusTCPServer.holdingRegisterWrite(i+1, combinedValue);
-  }
-  Serial.println("Done reading in EEPROM");
+  Serial.println("Setup WebServer");
+  MDNS.begin("myteensy");
+  MDNS.addService("_http", "_tcp", 80);
+  server.begin();
+  Serial.print("server is at ");
+  Serial.println(Ethernet.localIP());
+  // EthernetClient client = server.available();
+  // if (client) {
+  //   Serial.println("New client!");
+  //   EasyWebServer w(client);                    // Read and parse the HTTP Request
+  //   w.serveUrl("/",handleRoot);                   // Root page
+  //   //w.serveUrl("/analog",analogSensorPage);     // Analog sensor page
+  //   //w.serveUrl("/digital",digitalSensorPage);   // Digital sensor page
+  // }  
+  Serial.println("Done WebServer");
 }
 
 // **  LOOP ** LOOP ** LOOP ** //
 double currentMillis = 0;
+char key;
 void loop()
 {
   currentMillis = millis();
 
-  char key = keypad.getKey();
+  key = keypad.getKey();
   if (isDigit(key))
   {
     enteredPassword += key;
     Serial.print("key : ");
     Serial.print(enteredPassword);
     Serial.print(" @ ");
-    Serial.println(timeClient.getFormattedTime());
+    //Serial.println(timeClient.getFormattedTime());
   }
   if (key=='#') 
   {
@@ -131,27 +183,17 @@ void loop()
       Serial.println("Good Password!");
     }
   }
-  if (currentMillis - lastModbusMillis > updateModbusMillis) {
-    client = ethServer.available();
-    modbusTCPServer.accept(client);
-    modbusTCPServer.poll();
-    lastModbusMillis = currentMillis;
+  //server.handleClient();
+  EthernetClient client = server.available();
+  if (client) { // If a client is connected
+    Serial.println("New client!");
+    EasyWebServer w(client);
+    w.serveUrl("/",handleRoot);  
   }
+
 }
 // **  LOOP ** LOOP ** LOOP ** //
 
-
-bool checkPassword(int code) {
-  for (int i=0; i<50;i++) {
-    highByte = EEPROM.read(i*2);
-    lowByte  = EEPROM.read(i*2+1);
-    combinedValue = ((uint16_t)highByte << 8) | lowByte;
-    if (code == combinedValue && code != 0) {
-      return true;
-    }
-  }
-  return false;
-}
 
 uint16_t GetCodeEEPROM(uint8_t icode){
   highByte = EEPROM.read(icode*2);
