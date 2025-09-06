@@ -186,9 +186,29 @@ void loop()
     Serial.println("New client!");
     EasyWebServer w(client);
     Serial.println(w.url);
-    // This dies indeed print the url passed so we can add users maybe this way?
-    w.serveUrl("/",handleRoot);  
-    w.serveUrl("/authorizedUsers",handleAuthorizedUsers);
+    if ((String)w.url == "/"){
+      w.serveUrl("/",handleRoot);  
+    }
+    if ((String)w.url == "/authorizedUsers") {
+      w.serveUrl("/authorizedUsers",handleAuthorizedUsers);
+    }
+    else {
+      char delimiter = '/';
+      String surl = ((String)w.url).substring(1);
+      int firstDelimiter = surl.indexOf(delimiter);
+      String part1 = surl.substring(0, firstDelimiter);
+      int secondDelimiter = surl.indexOf(delimiter, firstDelimiter + 1);
+      String part2 = surl.substring(firstDelimiter + 1, secondDelimiter);
+      //int thirdDelimiter = surl.indexOf(delimiter, secondDelimiter + 1);
+      String part3 = surl.substring(secondDelimiter + 1);
+      Serial.print("P1:"+part1 +" P2:"+ part2 +" P3:"+ part3);
+      // TODO: add user
+      if (part1 == "addUser"){
+        
+      }
+      //w.serveUrl("/authorizedUsers",handleAuthorizedUsers);
+    }
+    
   }
 
 }
