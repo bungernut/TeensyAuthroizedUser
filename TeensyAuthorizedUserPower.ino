@@ -18,7 +18,7 @@ Modbus resister 50+ - some kind of log that can be pulled by client2database app
 // #include <NativeEthernetUdp.h>
 #include <QNEthernet.h>
 using namespace qindesign::network;
-#include <EasyWebServer.h>
+#include <EasyWebServer.h> // https://github.com/llelundberg/EasyWebServer/tree/master
 #include <NTPClient.h>
 #include <EEPROM.h>
 #include <Keypad.h>
@@ -57,14 +57,18 @@ void handleRoot(EasyWebServer &w) {
   w.client.println(F("</body></html>"));
   //server.send(200, "text/html", html);
 }
-
-void rootPage(EasyWebServer &w){
-  w.client.println(F("<!DOCTYPE HTML>"));
-  w.client.println(F("<html><head><title>EasyWebServer</title></head><body>"));
-  w.client.println(F("<p>Welcome to my little web server.</p>"));
-  w.client.println(F("<p><a href='/analog'>Click here to see the analog sensors</a></p>"));
-  w.client.println(F("<p><a href='/digital'>Click here to see the digital sensors</a></p>"));
-  w.client.println(F("</body></html>"));
+void handleAuthorizedUsers(EasyWebServer &w){
+  String html = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<link rel=\"icon\" href=\"data:,\">";
+  html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center; font-size: 20px}";
+  html += ".button { background-color: #4CAF50; border: none; color: white; padding: 12px 20px; \
+                     border-radius: 8px; text-decoration: none; font-size: 20px; margin: 2px; cursor: pointer;}";
+  html += ".button2 { background-color: #555555; }</style></head>";
+  html += "<body><h1>ESPBrew</h1>";
+  html += "<p>";
+  
+  html += "</body></html>";
+  w.client.println(html);
 }
 
 
@@ -143,17 +147,10 @@ void setup()
   Serial.println("Setup WebServer");
   MDNS.begin("myteensy");
   MDNS.addService("_http", "_tcp", 80);
+  
   server.begin();
   Serial.print("server is at ");
   Serial.println(Ethernet.localIP());
-  // EthernetClient client = server.available();
-  // if (client) {
-  //   Serial.println("New client!");
-  //   EasyWebServer w(client);                    // Read and parse the HTTP Request
-  //   w.serveUrl("/",handleRoot);                   // Root page
-  //   //w.serveUrl("/analog",analogSensorPage);     // Analog sensor page
-  //   //w.serveUrl("/digital",digitalSensorPage);   // Digital sensor page
-  // }  
   Serial.println("Done WebServer");
 }
 
@@ -188,7 +185,10 @@ void loop()
   if (client) { // If a client is connected
     Serial.println("New client!");
     EasyWebServer w(client);
+    Serial.println(w.url);
+    // This dies indeed print the url passed so we can add users maybe this way?
     w.serveUrl("/",handleRoot);  
+    w.serveUrl("/authorizedUsers",handleAuthorizedUsers);
   }
 
 }
