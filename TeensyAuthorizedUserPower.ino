@@ -31,10 +31,13 @@ byte mac[] = {
 //NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000); // NTP server, GMT offset (seconds), update interval (milliseconds)
 
 // EEPROM Variables
-uint8_t highByte = 0x12; // Example high byte
-uint8_t lowByte = 0x34;  // Example low byte
+uint8_t highByte; // Example high byte
+uint8_t lowByte;  // Example low byte
 uint16_t combinedValue;
-char charlog[20];
+uint8_t nUsers;
+char charLog[20];
+char charUser[20];
+char adminUser[20];
 
 char c;
 EthernetServer server(80);
@@ -66,7 +69,11 @@ void handleAuthorizedUsers(EasyWebServer &w){
   html += ".button2 { background-color: #555555; }</style></head>";
   html += "<body><h1>ESPBrew</h1>";
   html += "<p>";
-  
+  for (int i=0; i<nUsers; i++){
+    EEPROM.get(i*20,charUser);
+    html += (String)charUser;
+    html += "<br>";
+  }
   html += "</body></html>";
   w.client.println(html);
 }
@@ -102,7 +109,9 @@ bool checkPassword(int code) {
   }
   return false;
 }
+void addUser(String userName, String code){
 
+}
 
 
 void setup()
@@ -135,14 +144,31 @@ void setup()
   Serial.println(" done");
 
   // EEPROM
-  Serial.println("Save1x EEPROM code...");
-  String exampleLog = "bmong    2509060606";
-  exampleLog.toCharArray(charlog,20);
-  EEPROM.put(1000, charlog);
-  exampleLog = "sluitz   2509060606";
-  exampleLog.toCharArray(charlog,20);
-  EEPROM.put(1020, charlog);
-  Serial.println("DONE writing EEPROM");
+  Serial.println("EEPROM...");
+  nUsers = EEPROM.read(1000); // keep track of number of users
+  // for (int i=0; i<20; i++){
+  //   charUser[i] = EEPROM.read(i);
+  // }
+  EEPROM.get(0, charUser);
+  String adminCode ="A026Admin          ";
+  adminCode.toCharArray(adminUser, 20);
+  if (strcmp(charUser,adminUser)) {
+    Serial.println(charUser);
+    Serial.println(adminUser);
+    Serial.println("..Put Admin Code in EEPROM..");
+    EEPROM.put(0, adminUser);
+    EEPROM.write(1000,1);
+  }  
+  
+
+  // Serial.println("Save1x EEPROM code...");
+  // String exampleLog = "bmong    2509060606";
+  // exampleLog.toCharArray(charlog,20);
+  // EEPROM.put(1000, charlog);
+  // exampleLog = "sluitz   2509060606";
+  // exampleLog.toCharArray(charlog,20);
+  // EEPROM.put(1020, charlog);
+  Serial.println(".. EEPROM done");
 
   Serial.println("Setup WebServer");
   MDNS.begin("myteensy");
@@ -204,7 +230,10 @@ void loop()
       Serial.print("P1:"+part1 +" P2:"+ part2 +" P3:"+ part3);
       // TODO: add user
       if (part1 == "addUser"){
-        
+
+      }
+      if (part1 == "clear" && part2 == "all" && part3 == "authorizedUsers"){
+
       }
       //w.serveUrl("/authorizedUsers",handleAuthorizedUsers);
     }
@@ -213,10 +242,3 @@ void loop()
 
 }
 // **  LOOP ** LOOP ** LOOP ** //
-
-
-uint16_t GetCodeEEPROM(uint8_t icode){
-  highByte = EEPROM.read(icode*2);
-  lowByte  = EEPROM.read(icode*2+1);
-  combinedValue = ((uint16_t)highByte << 8) | lowByte;
-}
